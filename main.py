@@ -1,5 +1,6 @@
 from logging import config
 import os, sys
+from sp_gen_sdk.connector.mongo import MongoConnector
 
 WORKING_DIRECTORY = "/Users/aprus05/albertsons/amrit_rnd/sql_development_scripts/scripts/new_dev"
 SDK_PARENT_LOC = os.path.join(WORKING_DIRECTORY, 'sql_development_scripts/scripts/new_dev')
@@ -37,7 +38,7 @@ WORKING_REPO_DIRECTORY = '/Users/aprus05/albertsons/udco-cltv'
 WORKBOOK_LOC = "/Users/aprus05/albertsons/Ad_Platform_Campaign_Mapping_V1.3.4.1.2.xlsx"
 
 
-workbook_ap: workbook.Workbook = workbook.Workbook(WORKBOOK_LOC)
+# workbook_ap: workbook.Workbook = workbook.Workbook(WORKBOOK_LOC)
 
 
 
@@ -45,15 +46,17 @@ workbook_ap: workbook.Workbook = workbook.Workbook(WORKBOOK_LOC)
 # print(f"Workbook name: {workbook.name}")
 # print(f"Available sheets: {workbook_ap.sheet_names_list}")
 
-sheet = workbook_ap.get_sheet_by_name('Testing Sheet')
+# sheet = workbook_ap.get_sheet_by_name('Testing Sheet')
 # print(f"Sheet name: {sheet.title}")
-campaign_rf: report.Report = report.Report.parse(sheet)
-print(campaign_rf.model_dump_json())
+# campaign_rf: report.Report = report.Report.parse(sheet)
+# print(campaign_rf.model_dump_json())
 # print(f"Report name: {campaign_rf.name}")
 # print(f"Report columns: {campaign_rf.col_names}")
 
 
-
+mc = MongoConnector()
+print(f"MongoDB URI: {mc.uri}")
+mc.client()
 
 # tables = []
 # for ddl_rel_loc in tables_ddl_loc_list:
