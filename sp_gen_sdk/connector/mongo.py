@@ -32,8 +32,16 @@ class MongoConnector:
         collection = db[collection_name]
         return list(collection.find(query))
 
-# Usage example:
-mongo_connector = MongoConnector("mongodb://localhost:27017")
-mongo_connector._create_client()
-# results = mongo_connector.execute_query("test_db", "test_collection", {"field": "value"})
-mongo_connector.disconnect()
+    def insert_one(self, db_name: str, collection_name: str, document: dict):
+        if not self._client:
+            raise Exception("Not connected to MongoDB")
+        db = self._client[db_name]
+        collection = db[collection_name]
+        return collection.insert_one(document)
+
+    def insert_many(self, db_name: str, collection_name: str, documents: list[dict]):
+        if not self._client:
+            raise Exception("Not connected to MongoDB")
+        db = self._client[db_name]
+        collection = db[collection_name]
+        return collection.insert_many(documents)
