@@ -1,6 +1,6 @@
 import bson.binary
 from sqlglot import parse_one, expressions
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, model_validator, field_validator
 from enum import Enum
 from typing import Union
 
@@ -76,17 +76,6 @@ class ColumnType(str, Enum):
     def all_postfixes(cls) -> set[str]:
         return set(c.value for c in cls)
 
-    @classmethod
-    def check(cls, col_name: str) -> "ColumnType":
-        col_name = col_name.upper()
-        postfix = col_name.split("_")[-1]
-        if postfix in cls.all_postfixes():
-            if postfix == 'TS':
-                if col_name.startswith('DW'):
-                    return cls.DW_TS
-                return cls.SRC_TS
-            return cls(postfix)
-        return cls.GENERIC
 
 #####################################
 # Models 
@@ -151,6 +140,20 @@ class Column(BaseEntities):
             constraints.update(Constraint.parse(cons))
         return constraints
 
+    @field_validator("col_type", mode="after")
+    @classmethod
+    def _determine_col_type(cls, v: str, info: str) -> str:
+        col_name = info.data.get("name")
+        col_name = col_name.upper()
+        postfix = col_name.split("_")[-1]
+        if postfix in cls.all_postfixes():
+            if postfix == 'TS':
+                if col_name.startswith('DW'):
+                    return cls.DW_TS
+                return cls.SRC_TS
+            return cls(postfix)
+        return cls.GENERIC
+
     @classmethod
     def parse(cls, col_def: expressions.ColumnDef, layer: str) -> "Column":
 
@@ -158,7 +161,6 @@ class Column(BaseEntities):
         data = {
             "name": col_def.name,
             "data_type": col_def.args.get("kind").sql(),
-            "col_type": ColumnType.check(col_def.name),
             "not_null": constraints.get("not_null", False),
             "layer": layer,
             "desc": constraints.get("DESCRIPTION", "")
@@ -188,27 +190,26 @@ class Table(BaseEntities):
     columns: list[Column] = []
     options: Options = Options(description='', labels=[])        
 
-    @model_validator(mode='after')
-    def determine_metric_type(self) -> 'Table':
-        if self.type == TableType.DIMENSIONAL:
-            self.temporal_dependency = TemporalDependencyType.TL_DR
-            return self
+    @field_validator("temporal_dependency", mode="after")
+    @classmethod
+    def _determine_temporal_dependency(cls, v: str, info) -> str:
+        table_type = info.data.get("type")
+        columns = info.data.get("columns", [])
 
-        # Check all metric-like columns (those ending in _CNT or _AMT)
-        metric_cols = [c for c in self.columns if c.col_type in (ColumnType.CNT, ColumnType.AMT)]
+        if table_type == TableType.DIMENSIONAL:
+            return TemporalDependencyType.TL_DR
+
+        metric_cols = [c for c in columns if c.col_type in (ColumnType.CNT, ColumnType.AMT)]
         if not metric_cols:
-            self.temporal_dependency = TemporalDependencyType.TL_DR
-            return self
+            return TemporalDependencyType.TL_DR
 
-        cumulative_count = sum(1 for c in metric_cols if 'CUMULATIVE' in c.name.upper())
+        cumulative_count = sum(1 for c in metric_cols if "CUMULATIVE" in c.name.upper())
         intraday_count = len(metric_cols) - cumulative_count
 
         if cumulative_count > intraday_count:
-            self.temporal_dependency = TemporalDependencyType.CUMULATIVE
+            return TemporalDependencyType.CUMULATIVE
         else:
-            self.temporal_dependency = TemporalDependencyType.INTRADAY
-        
-        return self
+            return TemporalDependencyType.INTRADAY
 
     @classmethod
     def parse(cls, schema_expr: expressions.Table) -> "Table":
