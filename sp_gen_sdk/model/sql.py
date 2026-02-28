@@ -7,12 +7,9 @@ from typing import Union
 # Enums
 
 class TableType(str, Enum):
-
-    GENERIC = "GENERIC"
     DIMENSIONAL = "DIMENSIONAL"
     FACT = "FACT"
-    CONFIRMED = "CONFIRMED"
-    REFINED = "REFINED"
+    GENERIC = "GENERIC"
 
     @staticmethod
     def from_name(name: str) -> "TableType":
@@ -22,6 +19,12 @@ class TableType(str, Enum):
             return TableType.FACT
         else:
             return TableType.GENERIC
+
+
+class MedallionLayer(str):
+    REFINED = "REFINED"
+    CONFIRMED = "CONFIRMED"
+    ANALYTICAL = "ANALYTICAL"
 
 class TimeGranularityType(str, Enum):
     DAY = "DAY"
@@ -43,10 +46,11 @@ class Options(BaseModel):
     description: str
     labels: list[Labels] | None = []
 
-class ReportMetricType(str, Enum):
+class TemporalDependencyType(str, Enum):
     INTRADAY = "INTRADAY"     # Additive (Summable)
     CUMULATIVE = "CUMULATIVE" # Non-Additive (Last/Max)
-    NON_METRIC = "NON_METRIC" # Dimensions, IDs, etc.
+    TL_DR = "TL;DR" # Dimensions, IDs, etc.
+    UNKNOWN = "UNKNOWN"
 
 
 class ColumnType(str, Enum):
@@ -68,6 +72,7 @@ class ColumnType(str, Enum):
     NBR = "NBR"                           # Numeric value  (e.g. VALUE_NBR)
     DAY_ID = "DAY_ID"                     # Fiscal day identifier  (e.g. PERFORMANCE_DAY_ID)
 
+    @classmethod
     def all_postfixes(cls) -> set[str]:
         return set(c.value for c in cls)
 
@@ -136,7 +141,7 @@ class Column(BaseEntities):
     data_type: str = ''
     col_type: str = ColumnType.GENERIC
     not_null: bool = False
-    # options: Options
+    layer: str = MedallionLayer.REFINED
     desc: str = ''
 
     @classmethod
@@ -146,9 +151,8 @@ class Column(BaseEntities):
             constraints.update(Constraint.parse(cons))
         return constraints
 
-
     @classmethod
-    def parse(cls, col_def: expressions.ColumnDef) -> "Column":
+    def parse(cls, col_def: expressions.ColumnDef, layer: str) -> "Column":
 
         constraints = cls.constraints(col_def.constraints)
         data = {
@@ -156,6 +160,7 @@ class Column(BaseEntities):
             "data_type": col_def.args.get("kind").sql(),
             "col_type": ColumnType.check(col_def.name),
             "not_null": constraints.get("not_null", False),
+            "layer": layer,
             "desc": constraints.get("DESCRIPTION", "")
         }
 
@@ -173,55 +178,54 @@ class AnalyticalColumn(BaseModel):
     not_null: bool = False
     desc: str = ''
 
-class AnalyticalTable(BaseEntities):
-    name: str = ''
-    database: str = ''
-    project: str = ''
-    type: str = TableType.GENERIC
-    metric_type: ReportMetricType = ReportMetricType.NON_METRIC
-    column_names: list[str] = []
-    options: Options = Options(description='', labels=[])
-
 class Table(BaseEntities):
     name: str = ''
     database: str = ''
     project: str = ''
     type: str = TableType.GENERIC
-    metric_type: ReportMetricType = ReportMetricType.NON_METRIC
+    layer: str = MedallionLayer.REFINED
+    temporal_dependency: str = TemporalDependencyType.UNKNOWN
     columns: list[Column] = []
     options: Options = Options(description='', labels=[])        
 
     @model_validator(mode='after')
     def determine_metric_type(self) -> 'Table':
         if self.type == TableType.DIMENSIONAL:
-            self.metric_type = ReportMetricType.NON_METRIC
+            self.temporal_dependency = TemporalDependencyType.TL_DR
             return self
 
-        # Check all metric-like columns
-        metric_cols = [c for c in self.columns if c.col_type in (ColumnType.CNT, ColumnType.CUMULATIVE_CNT)]
+        # Check all metric-like columns (those ending in _CNT or _AMT)
+        metric_cols = [c for c in self.columns if c.col_type in (ColumnType.CNT, ColumnType.AMT)]
         if not metric_cols:
-            self.metric_type = ReportMetricType.NON_METRIC
+            self.temporal_dependency = TemporalDependencyType.TL_DR
             return self
 
-        cumulative_count = sum(1 for c in metric_cols if c.col_type == ColumnType.CUMULATIVE_CNT)
-        intraday_count = sum(1 for c in metric_cols if c.col_type == ColumnType.CNT)
+        cumulative_count = sum(1 for c in metric_cols if 'CUMULATIVE' in c.name.upper())
+        intraday_count = len(metric_cols) - cumulative_count
 
         if cumulative_count > intraday_count:
-            self.metric_type = ReportMetricType.CUMULATIVE
+            self.temporal_dependency = TemporalDependencyType.CUMULATIVE
         else:
-            self.metric_type = ReportMetricType.INTRADAY
+            self.temporal_dependency = TemporalDependencyType.INTRADAY
         
         return self
 
     @classmethod
     def parse(cls, schema_expr: expressions.Table) -> "Table":
+        table_name = schema_expr.this.name
+        table_type = TableType.from_name(table_name)
+        
+        # Determine Medallion Layer
+        # If it's Dimensional or Fact, it's likely Analytical
+        layer = MedallionLayer.ANALYTICAL if table_type in (TableType.DIMENSIONAL, TableType.FACT) else MedallionLayer.REFINED
 
         data = {
-            "name": schema_expr.this.name,
+            "name": table_name,
             "database": schema_expr.this.db,
             "project": schema_expr.this.catalog,
-            "columns": [Column.parse(c) for c in schema_expr.expressions if isinstance(c, expressions.ColumnDef)],
-            "type": TableType.from_name(schema_expr.this.name)
+            "columns": [Column.parse(c, layer) for c in schema_expr.expressions if isinstance(c, expressions.ColumnDef)],
+            "type": table_type,
+            "layer": layer
         }
         return cls(**data)
     
