@@ -215,7 +215,7 @@ class Table(BaseEntities):
     def parse(cls, schema_expr: expressions.Table) -> "Table":
         table_name = schema_expr.this.name
         table_type = TableType.from_name(table_name)
-        
+
         # Determine Medallion Layer
         # If it's Dimensional or Fact, it's likely Analytical
         layer = MedallionLayer.ANALYTICAL if table_type in (TableType.DIMENSIONAL, TableType.FACT) else MedallionLayer.REFINED
@@ -226,10 +226,10 @@ class Table(BaseEntities):
             "project": schema_expr.this.catalog,
             "columns": [Column.parse(c, layer) for c in schema_expr.expressions if isinstance(c, expressions.ColumnDef)],
             "type": table_type,
-            "layer": layer
+            "layer": layer,
+            "options": Options(description='', labels=[])
         }
         return cls(**data)
-    
 
     def list_cols(self):
         return [col.name for col in self.columns]
