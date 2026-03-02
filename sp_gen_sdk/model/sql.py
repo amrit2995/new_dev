@@ -173,13 +173,6 @@ class Granularity(BaseModel):
     delivery: str
     time: str
 
-class AnalyticalColumn(BaseModel):
-    name: str
-    data_type: str = ''
-    col_type: str = ColumnType.GENERIC
-    not_null: bool = False
-    desc: str = ''
-
 class Table(BaseEntities):
     name: str = ''
     database: str = ''
